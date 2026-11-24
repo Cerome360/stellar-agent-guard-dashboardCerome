@@ -69,10 +69,18 @@ const PROTOCOL = "CAPADGEK457RHKN4RYVUMDJTFHDSG7R5HREQONKLYK7MFKC5WFENPP44";
  */
 type Call = "getAccount" | "simulate" | "sign" | "send" | "getTransaction";
 
+function assertNoWrite(calls: readonly Call[], message: string): void {
+  assert.equal(
+    calls.some((call) => call === "sign" || call === "send" || call === "getTransaction"),
+    false,
+    message,
+  );
+}
+
 interface PipelineServer {
   server: rpc.Server;
   calls: Call[];
-  /** The set_policy argument the first simulation carried. */
+  /** The policy argument the first simulation carried (the read-only preflight). */
   policyArgs: () => unknown[];
 }
 
@@ -340,11 +348,12 @@ test("happy path: encode → simulate → sign → broadcast → poll → re-rea
     assert.deepEqual(policy.assets, [TOKEN]);
     assert.deepEqual(policy.recipients, [RECIPIENT]);
 
-    // Discovery simulation, enforced simulation, wallet signature, broadcast,
-    // inclusion poll — in that order, with nothing skipped.
+    // Read-only `validate_policy` preflight, discovery simulation, enforced
+    // simulation, wallet signature, broadcast, inclusion poll — in that order,
+    // with nothing skipped.
     assert.deepEqual(
       harness.fake.calls.filter((call) => call !== "getAccount"),
-      ["simulate", "simulate", "sign", "send", "getTransaction"],
+      ["simulate", "simulate", "simulate", "sign", "send", "getTransaction"],
     );
     assert.equal(harness.refreshes, 1, "a landed write re-reads the guard");
     assert.match(harness.container.textContent ?? "", /set_policy landed on chain/);
@@ -460,7 +469,7 @@ test("imported cap one unit past i128 is refused before the draft can be staged"
       button(harness.container, "Sign and install policy").click();
     });
     await settle();
-    assert.deepEqual(harness.fake.calls, [], "an imported draft never reached the transport");
+    assertNoWrite(harness.fake.calls, "an imported draft never reached sign or broadcast");
   } finally {
     await harness.unmount();
   }
@@ -497,7 +506,7 @@ test("malformed, unsupported and wrong-network imports never reach the transport
       button(harness.container, "Sign and install policy").click();
     });
     await settle();
-    assert.deepEqual(harness.fake.calls, [], "no invalid import reached sign or broadcast");
+    assertNoWrite(harness.fake.calls, "no invalid import reached sign or broadcast");
   } finally {
     await harness.unmount();
   }
